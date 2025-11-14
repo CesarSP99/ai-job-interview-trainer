@@ -1,6 +1,7 @@
-import React from 'react';
-import { Box, Typography, Chip, Divider } from '@mui/material';
-
+import { Box, Typography, Chip, Divider, Stack, Button } from '@mui/material';
+import ChatDialog from '../Interview/ChatDialog';
+import ChatIcon from "@mui/icons-material/Chat";
+import React, { useEffect, useState } from 'react'; 
 /**
  * JobDetailView Component
  * Displays an overview of the selected job match
@@ -8,6 +9,11 @@ import { Box, Typography, Chip, Divider } from '@mui/material';
 
 
 const JobDetailView = ({ job, index }) => {
+
+
+  //AI STATE (NEW)
+  const [chatOpen, setChatOpen] = useState(false);
+
   if (!job) return null;
 
 //JOB PARAMETERS:
@@ -78,7 +84,6 @@ return (
           <Typography variant="h3" fontWeight="bold" align='right' color='rgb(151, 200, 240)' >
               # {index + 1}
            </Typography>
-
         </Box>
     </Box>
     <Divider sx={{ my: 3 }} />
@@ -135,7 +140,20 @@ return (
       <Typography><strong>Contact Person: </strong>{companyCEO} • {cyclePhoneNumbers(index)}</Typography>
  
     </Box>
+    <Box>
+      <Stack direction="row" justifyContent="center">
+        <Button variant="contained" startIcon={<ChatIcon />} onClick={() => setChatOpen(true)} sx={{ borderRadius: 2 }}>
+          Open AI Interviewer
+        </Button>              
+      </Stack>
+    </Box>
+    <ChatDialog
+  open={chatOpen}
+  onClose={() => setChatOpen(false)}
+  job={job}
+/>
   </Box>
+  
 );
 };
 
