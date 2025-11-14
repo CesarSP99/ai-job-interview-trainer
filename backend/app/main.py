@@ -1,7 +1,7 @@
 # This file is the main entry point for the FastAPI application.
 from fastapi import FastAPI
 from app.auth import auth_router
-from app.api import jobs, resume
+from app.api import jobs, resume, interview_train
 from app.db.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,6 +24,7 @@ app.add_middleware(
 app.include_router(auth_router.router)
 app.include_router(resume.router)
 app.include_router(jobs.router)
+app.include_router(interview_train.router)
 
 # Define a simple root endpoint for testing
 @app.get("/")
