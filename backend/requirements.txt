@@ -22,3 +22,7 @@ spacy
 nltk
 faker
 tqdm
+python-multipart
+transformers
+faster-whisper
+torch
