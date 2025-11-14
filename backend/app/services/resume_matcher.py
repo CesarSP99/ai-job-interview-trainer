@@ -19,9 +19,35 @@ from wordcloud import WordCloud
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
+CODE_FENCE_PATTERN = re.compile(r"^```[a-zA-Z0-9_+\-]*\s*|\s*```$", re.MULTILINE)
+
 # Models
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
 kw_model = KeyBERT(embedding_model)
+
+def strip_code_fences(text: str) -> str:
+    """
+    Remove markdown code fences like ``` or ```python ... ``` from Gemini output.
+    Keeps only the inner content.
+    """
+    if not text:
+        return ""
+
+    text = text.strip()
+
+    # If there are explicit fences, grab the content between the first and last fence
+    if "```" in text:
+        first = text.find("```")
+        last = text.rfind("```")
+        if first != -1 and last != -1 and last > first:
+            inner = text[first + 3:last]  # content after first ```
+            # Remove an optional language tag at the start of inner (e.g., "python\n")
+            inner = re.sub(r"^[a-zA-Z0-9_+\-]*\s*", "", inner)
+            return inner.strip()
+
+    # Fallback: just strip fence tokens if they’re inline
+    text = CODE_FENCE_PATTERN.sub("", text)
+    return text.strip()
 
 def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
     import fitz
@@ -58,9 +84,7 @@ Resume:
     try:
         model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
-        content = response.text.strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```[a-zA-Z]*", "", content).strip().rstrip("```").strip()
+        content = strip_code_fences(response.text or "")
         return json.loads(content)
     except Exception as e:
         print(f"❌ Resume profile extraction failed: {e}")
@@ -68,18 +92,84 @@ Resume:
 
 def extract_skills_with_gemini(text: str) -> list[str]:
     prompt = f"""
-Extract only the professional skills from this resume as a valid Python list of strings.
+You are a resume parser extracting a list of professional skills.
+
+Return the output in **exactly** this format (Python list literal):
+
+["python", "sql", "data analysis"]
+
+Rules:
+- Output MUST be a valid Python list of strings.
+- Do NOT wrap the answer in markdown.
+- Do NOT add ```python, ```json or any backticks.
+- Do NOT add explanations, comments, or variable names.
+- Just output the list literal.
 
 Resume:
 {text}
-
-Return only the list. No explanation, no code block, no comments.
 """
     try:
-        response = genai.GenerativeModel("gemini-2.0-flash").generate_content(prompt)
-        return [s.lower().strip() for s in ast.literal_eval(response.text.strip()) if isinstance(s, str)]
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        raw = (response.text or "").strip()
+
+        # 1) Strip any code fences if Gemini ignored instructions
+        cleaned = strip_code_fences(raw)
+
+        # 2) If it returned a JSON object like {"skills": [...]} instead of a bare list
+        if cleaned.startswith("{"):
+            try:
+                obj = json.loads(cleaned)
+                if isinstance(obj, dict):
+                    for key in ("skills", "resumeSkills", "professionalSkills"):
+                        if key in obj and isinstance(obj[key], list):
+                            skills_list = obj[key]
+                            break
+                    else:
+                        skills_list = []
+                else:
+                    skills_list = []
+            except Exception:
+                skills_list = []
+        else:
+            skills_list = None
+
+        # 3) Normal path: treat it as a Python list literal
+        if skills_list is None:
+            # If there’s extra text, keep only from the first '[' to the matching ']'
+            if "[" in cleaned and "]" in cleaned:
+                start = cleaned.index("[")
+                end = cleaned.rfind("]")
+                cleaned_list = cleaned[start:end + 1]
+            else:
+                cleaned_list = cleaned  # hope it’s just the list
+
+            skills_list = ast.literal_eval(cleaned_list)
+
+        # 4) Normalize & filter
+        if not isinstance(skills_list, list):
+            raise ValueError("Gemini did not return a list")
+
+        final_skills = []
+        for s in skills_list:
+            if isinstance(s, str):
+                skill = s.strip().lower()
+                if skill:
+                    final_skills.append(skill)
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_skills = []
+        for s in final_skills:
+            if s not in seen:
+                seen.add(s)
+                unique_skills.append(s)
+
+        return unique_skills
+
     except Exception as e:
-        print(f"❌ Gemini skill extraction failed: {e}")
+        print("❌ Gemini skill extraction failed:", e)
+        print("Raw Gemini output was:\n", response.text if 'response' in locals() else "No response")
         return []
 
 def extract_keywords_for_wordcloud(text: str, top_n: int = 25):
@@ -127,9 +217,7 @@ Return ONLY the JSON array. No explanation or markdown.
     try:
         model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
-        content = response.text.strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```[a-zA-Z]*", "", content).strip().rstrip("```").strip()
+        content = strip_code_fences(response.text or "")
         return json.loads(content)
     except Exception as e:
         print("❌ Gemini rerank failed:", e)
