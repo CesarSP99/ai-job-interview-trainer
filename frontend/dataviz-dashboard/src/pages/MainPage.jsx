@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react'; // This is the React Base mo
 import { Stack, Box, Grid, Typography, Button, Paper } from '@mui/material'; // Base Material UI Components https://mui.com/material-ui/react-box/
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
+import ChatDialog from "../components/Interview/ChatDialog";
+import ChatIcon from "@mui/icons-material/Chat";
+
+
 
 /*Components Imports*/ 
 import JobDetailView from '../components/Grouper/JobDetailView';
@@ -25,6 +29,9 @@ const MainPage = () => {
   const location = useLocation();
   const uploadedFile = location.state?.file;
   const fileName = uploadedFile.name;
+
+
+
 
   // UI states
   const [loading, setLoading] = useState(false);
