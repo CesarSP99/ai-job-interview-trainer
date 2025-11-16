@@ -10,10 +10,6 @@ import React, { useEffect, useState } from 'react';
 
 const JobDetailView = ({ job, index }) => {
 
-
-  //AI STATE (NEW)
-  const [chatOpen, setChatOpen] = useState(false);
-
   if (!job) return null;
 
 //JOB PARAMETERS:
@@ -140,18 +136,7 @@ return (
       <Typography><strong>Contact Person: </strong>{companyCEO} • {cyclePhoneNumbers(index)}</Typography>
  
     </Box>
-    <Box>
-      <Stack direction="row" justifyContent="center">
-        <Button variant="contained" startIcon={<ChatIcon />} onClick={() => setChatOpen(true)} sx={{ borderRadius: 2 }}>
-          Open AI Interviewer
-        </Button>              
-      </Stack>
-    </Box>
-    <ChatDialog
-  open={chatOpen}
-  onClose={() => setChatOpen(false)}
-  job={job}
-/>
+
   </Box>
   
 );

@@ -5,8 +5,6 @@ import axios from 'axios';
 import ChatDialog from "../components/Interview/ChatDialog";
 import ChatIcon from "@mui/icons-material/Chat";
 
-
-
 /*Components Imports*/ 
 import JobDetailView from '../components/Grouper/JobDetailView';
 import AppBarTip from '../components/Layout/AppBarTip';
@@ -23,7 +21,7 @@ import jobsData from "../assets/json/jobsData.json"; // DEFAULT JSON AS AN EXAMP
 
 /*API CONNECTION, */
 const FAST_API_URL =  "https://cloud.cesarsp.com:26000/resume/match"  // URL CONNECTION. IF NOT WORKING, IT WILL DEFAULT TO LOCAL JSON
-const TIMEOUT_MILISECONDS = 60000                                     
+const TIMEOUT_MILISECONDS = 60000                              
 
 const MainPage = () => {
   const location = useLocation();
@@ -31,6 +29,9 @@ const MainPage = () => {
   const fileName = uploadedFile.name;
 
 
+
+  //AI STATE (NEW)
+  const [chatOpen, setChatOpen] = useState(false);
 
 
   // UI states
@@ -249,7 +250,15 @@ const MainPage = () => {
               elevation={3}
             >
               <JobDetailView job={jobs[jobIndex]} index={jobIndex}/>
-              <Stack direction="row" spacing={2} mt={2} justifyContent="center">
+                <Box>
+                  <Stack direction="row" justifyContent="center">
+                    <Button variant="contained" startIcon={<ChatIcon />} onClick={() => setChatOpen(true)} sx={{ borderRadius: 2 }}>
+                          Open AI Interviewer
+                    </Button>              
+                  </Stack>
+                </Box>
+                <ChatDialog open={chatOpen} onClose={() => setChatOpen(false)} job={jobs[jobIndex]} resumeSkills={resume_skills} resumeProfile={resumeProfile}/>
+            <Stack direction="row" spacing={2} mt={2} justifyContent="center">
                 <Button variant="outlined" onClick={handlePrevious}>Previous</Button>
                 <Button variant="contained" onClick={handleNext}>Next</Button>
               </Stack>
