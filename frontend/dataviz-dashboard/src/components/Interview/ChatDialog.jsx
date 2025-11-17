@@ -62,7 +62,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
   const [sending, setSending] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
 
-  // 🎙 audio recording state
+  // audio recording state
   const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -387,7 +387,9 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
   return (
     <Dialog
       fullWidth
-      maxWidth="md"
+      //fullScreen="true"
+      maxWidth="xl" //xs, sm, md, lg, xl)
+     
       open={open}
       onClose={onClose}
       PaperProps={{ sx: { borderRadius: 3 } }}
@@ -537,7 +539,8 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
           <Stack
             direction="row"
             alignItems="center"
-            sx={{ mt: 1 }}
+
+            sx={{ mt: 2, p: 2}}
           >
             {/* Left: Evaluate */}
             <Button
@@ -546,7 +549,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
               disabled={
                 !sessionId || evaluating || starting || sending || recording
               }
-              sx={{ borderRadius: 2 }}
+              sx={{ borderRadius: 2, p:2, ml:-2, mt:-2 }}
             >
               {evaluating ? "Evaluating…" : "Evaluate"}
             </Button>
@@ -585,7 +588,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                 starting ||
                 recording
               }
-              sx={{ borderRadius: 2 }}
+              sx={{ borderRadius: 2, p:2, mr:-2, mt:-2}}
             >
               Send
             </Button>
