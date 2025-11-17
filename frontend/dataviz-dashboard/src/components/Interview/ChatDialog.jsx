@@ -562,7 +562,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                 justifyContent: "center",
               }}
             >
-            {/* Middle: Voice record (DISABLED FOR THE PROTYPE BECAUSE IT IS NOT FULLY TESTED YET)
+            {/* Middle: Voice record (DISABLED FOR THE PROTYPE BECAUSE IT IS NOT FULLY TESTED YET)*/}
           
               <Button
                 variant={recording ? "contained" : "outlined"}
@@ -573,7 +573,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                 sx={{ borderRadius: "999px" }}
               >
                 {recording ? "Stop" : "Record"}
-              </Button> */}
+              </Button> 
             </Box>
 
             {/* Right: Send */}
