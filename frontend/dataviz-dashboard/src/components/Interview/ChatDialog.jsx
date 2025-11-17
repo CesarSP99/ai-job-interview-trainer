@@ -319,54 +319,59 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
         const audioBlob = new Blob(audioChunksRef.current, {
           type: "audio/webm",
         });
-        const file = new File(
-          [audioBlob],
-          `interview-recording-${Date.now()}.webm`,
-          { type: "audio/webm" }
-        );
+          const fileName = `interview-recording-${Date.now()}.webm`;
+  const file = new File([audioBlob], fileName, { type: "audio/webm" });
 
-        // Show a placeholder message for the user voice
-        setSending(true);
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "user",
-            content: "[Voice message]",
-            timestamp: Date.now(),
-          },
-        ]);
+  // ✅ Create a local URL so we can play this audio again
+  const audioUrl = URL.createObjectURL(audioBlob);
+  const timestamp = Date.now();
 
-        try {
-          const chatResponse = await sendInterviewMessage({
-            sessionId,
-            content: "",
-            file,
-          });
+  setSending(true);
 
-          const reply = mapBackendMessage(chatResponse.reply);
-          setMessages((prev) => [
-            ...prev,
-            reply || {
-              role: "assistant",
-              content: "(empty reply)",
-              timestamp: Date.now(),
-            },
-          ]);
-        } catch (e) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              content:
-                "I couldn’t send the voice message. Please try again or use text.",
-              timestamp: Date.now(),
-              error: String(e.message || e),
-            },
-          ]);
-        } finally {
-          setSending(false);
-        }
-      };
+  // ✅ Add a voice message with a playable URL
+  setMessages((prev) => [
+    ...prev,
+    {
+      role: "user",
+      content: "[Voice message]",
+      modality: "voice",
+      audioUrl,          // <- this is what we’ll use in the UI
+      fileName,
+      timestamp,
+    },
+  ]);
+
+  try {
+    const chatResponse = await sendInterviewMessage({
+      sessionId,
+      content: "",
+      file,
+    });
+
+    const reply = mapBackendMessage(chatResponse.reply);
+    setMessages((prev) => [
+      ...prev,
+      reply || {
+        role: "assistant",
+        content: "(empty reply)",
+        timestamp: Date.now(),
+      },
+    ]);
+  } catch (e) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content:
+          "I couldn’t send the voice message. Please try again or use text.",
+        timestamp: Date.now(),
+        error: String(e.message || e),
+      },
+    ]);
+  } finally {
+    setSending(false);
+  }
+};
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
@@ -467,24 +472,35 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                             wordBreak: "break-word",
                           }}
                         >
-                          <Typography
-                            variant="body2"
-                            component="div"
-                            sx={{
-                              "& h1, & h2, & h3, & h4": {
-                                fontWeight: 600,
-                                mt: 1.5,
-                                mb: 0.5,
-                              },
-                              "& ul": { pl: 3, mb: 1 },
-                              "& li": { mb: 0.5 },
-                              "& hr": { my: 1.5 },
-                            }}
-                          >
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {m.content}
-                            </ReactMarkdown>
-                          </Typography>
+                          {m.modality === "voice" && m.audioUrl ? (
+                            <>
+                              <Typography
+                                variant="body2"
+                                sx={{ mb: 0.5, fontStyle: "italic" }}
+                              >
+                                {m.content || "[Voice message]"}
+                              </Typography>
+                              <audio controls src={m.audioUrl} style={{ width: "100%" }}>
+                                Your browser does not support the audio element.
+                              </audio>
+                            </>
+                          ) : (
+                            <Typography
+                              variant="body2"
+                              component="div"
+                              sx={{
+                                "& h1, & h2, & h3, & h4": { fontWeight: 600, mt: 1.5, mb: 0.5 },
+                                "& ul": { pl: 3, mb: 1 },
+                                "& li": { mb: 0.5 },
+                                "& hr": { my: 1.5 },
+                              }}
+                            >
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {m.content}
+                              </ReactMarkdown>
+                            </Typography>
+                          )}
+
                           {m.error && (
                             <>
                               <Divider sx={{ my: 1 }} />
