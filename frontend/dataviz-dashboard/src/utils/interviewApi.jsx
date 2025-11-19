@@ -1,16 +1,8 @@
-//Utils to interact wihth the AI interiview API
-
-const BASE_URLUrl = 'https://api.example.com/interview';
-
 // utils/interviewApi.jsx
-const BASE_URL = "https://your-backend.example.com/interview"; // TODO: replace
 
-// Helper: standard JSON fetch
-async function jsonFetch(url, options = {}) {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
+const BASE_URL = "https://cloud.cesarsp.com:26000"; // update if needed
+
+async function handleJsonResponse(res) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text}`);
@@ -18,30 +10,62 @@ async function jsonFetch(url, options = {}) {
   return res.json();
 }
 
-// 1) Start a new interview session when the dialog opens
-export async function startInterviewSession({ jobId, jobTitle }) {
-  // POST on entry (you asked: “indicating that we are entering the chatbot”)
-  return jsonFetch(`${BASE_URL}/session`, {
+/**
+ * Start an interview session.
+ * Matches /interview/start, StartRequest schema.
+ */
+export async function startInterviewSession(startPayload) {
+  // startPayload MUST be a plain JS object, NOT a JSON string.
+  // e.g. { job_id: 123, job_title: "Data Scientist", ... }
+  const res = await fetch(`${BASE_URL}/interview/start`, {
     method: "POST",
-    body: JSON.stringify({ jobId, jobTitle }),
-  }); // expected: { sessionId: "..." }
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(startPayload),
+  });
+  return handleJsonResponse(res); // { session_id, first_message }
 }
 
-// 2) Send a user message (POST each message)
-export async function sendInterviewMessage({ sessionId, content }) {
-  return jsonFetch(`${BASE_URL}/message`, {
+/**
+ * Send a message in an interview session.
+ * Matches /interview/message, multipart/form-data.
+ * Returns ChatResponse: { session_id, reply, chat_history }.
+ */
+export async function sendInterviewMessage({ sessionId, content, file }) {
+  const formData = new FormData();
+  formData.append("session_id", sessionId);
+  if (content !== undefined && content !== null && content !== "") {
+    formData.append("text", content);
+  }
+  if (file) {
+    formData.append("file", file);
+  }
+
+  const res = await fetch(`${BASE_URL}/interview/message`, {
     method: "POST",
-    body: JSON.stringify({ sessionId, role: "user", content }),
-  }); // expected: { messageId: "...", timestamp: ... }
+    body: formData,
+  });
+
+  return handleJsonResponse(res);
 }
 
-// 3) Retrieve the assistant reply (GET)
-export async function getInterviewReply({ sessionId, forMessageId }) {
-  // You said: “reply should be a GET”. This polls a single reply for a user message.
-  const url = new URL(`${BASE_URL}/reply`);
-  url.searchParams.set("sessionId", sessionId);
-  url.searchParams.set("for", forMessageId); // the user message we’re waiting on
+export async function evaluateInterview({ sessionId }) {
+  const body = new URLSearchParams();
+  body.set("session_id", sessionId);
 
-  return jsonFetch(url.toString(), { method: "GET" });
-  // expected: { role: "assistant", content: "...", timestamp: ... }
+  const res = await fetch(`${BASE_URL}/interview/evaluate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body,
+  });
+
+  return handleJsonResponse(res);
 }
+
+// There is NO GET /interview/reply endpoint in the backend,
+// so we don't export getInterviewReply.

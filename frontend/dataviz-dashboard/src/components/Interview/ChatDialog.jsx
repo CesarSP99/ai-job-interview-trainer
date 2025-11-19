@@ -18,49 +18,126 @@ import {
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import SendIcon from "@mui/icons-material/Send";
+import MicIcon from "@mui/icons-material/Mic";
 import {
   startInterviewSession,
   sendInterviewMessage,
-  getInterviewReply,
+  evaluateInterview,
 } from "../../utils/interviewApi";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-export default function ChatDialog({ open, onClose, job }) {
+// Helper: map backend Message -> local shape
+function mapBackendMessage(m) {
+  if (!m) return null;
+  return {
+    role: m.role || "assistant",
+    content: m.content || "",
+    modality: m.modality || "text",
+    sentiment: m.sentiment || null,
+    timestamp: Date.now(),
+  };
+}
+
+/*
+StartRequest payload example (what we send to /interview/start):
+
+{
+  resume_skills: resume_skills,
+  job_id: job.jobId,
+  job_title: job.jobTitle,
+  company: job.company,
+  matched_skills: job.matchedSkills,
+  match_score: job.matchScore,
+  resume_profile: resumeProfile,
+  trainee_name: resumeProfile?.name ?? null,
+}
+*/
+
+export default function ChatDialog({ open, onClose, job, resumeSkills, resumeProfile }) {
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [starting, setStarting] = useState(false);
   const [sending, setSending] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
+
+  // audio recording state
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
   const listRef = useRef(null);
 
-  // Autoscroll to the last message
+  // Autoscroll to last message
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages, open]);
 
+  const jobTitle = useMemo(
+    () => job?.title ?? job?.jobTitle ?? "Job Interview",
+    [job]
+  );
+
+  // Cleanup recording on unmount/close
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current) {
+        try {
+          mediaRecorderRef.current.stream
+            ?.getTracks()
+            ?.forEach((t) => t.stop());
+        } catch {
+          // ignore
+        }
+        mediaRecorderRef.current = null;
+      }
+    };
+  }, []);
+
   // Start session when the dialog opens
   useEffect(() => {
     let cancelled = false;
+
     async function boot() {
-      if (!open) return;
+      if (!open || !job) return;
       setStarting(true);
+      setMessages([]);
+      setSessionId(null);
+
       try {
-        const res = await startInterviewSession({
-          jobId: job?.id ?? job?._id ?? job?.jobId ?? null,
-          jobTitle: job?.title ?? job?.jobTitle ?? "Unknown Role",
-        });
-        if (!cancelled) {
-          setSessionId(res.sessionId);
-          // Seed with a friendly system/assistant intro (optional: backend can also send it)
-          setMessages([
-            {
-              role: "assistant",
-              content: `Hi! I’m your AI interviewer for "${job?.title ?? "this role"}". I’ll ask questions like a real interview and give feedback. Ready to start?`,
-              timestamp: Date.now(),
-            },
-          ]);
-        }
+        const startPayload = {
+          resume_skills: resumeSkills ?? [],
+          job_id: job.jobId,
+          job_title: job.jobTitle,
+          company: job.company,
+          matched_skills: job.matchedSkills ?? [],
+          match_score:
+            typeof job.matchScore === "number"
+              ? job.matchScore
+              : typeof job.__skillMatchScore === "number"
+              ? job.__skillMatchScore / 100.0
+              : 0,
+          resume_profile: resumeProfile ?? null,
+          trainee_name: resumeProfile?.name ?? null,
+        };
+
+        const res = await startInterviewSession(startPayload);
+        if (cancelled) return;
+
+        // Backend response: { session_id, first_message }
+        setSessionId(res.session_id);
+
+        const firstMsg = mapBackendMessage(res.first_message);
+        setMessages([
+          firstMsg || {
+            role: "assistant",
+            content: `Hi! I’m your AI interviewer for "${jobTitle}". I’ll ask questions like a real interview and give feedback. Ready to start?`,
+            timestamp: Date.now(),
+          },
+        ]);
       } catch (e) {
         if (!cancelled) {
           setMessages([
@@ -77,23 +154,38 @@ export default function ChatDialog({ open, onClose, job }) {
         if (!cancelled) setStarting(false);
       }
     }
-    boot();
-    return () => {
-      cancelled = true;
+
+    if (open) {
+      boot();
+    } else {
+      // reset when closing
       setSessionId(null);
       setMessages([]);
       setInput("");
-    };
-  }, [open, job]);
+      setStarting(false);
+      setSending(false);
+      setEvaluating(false);
+      setRecording(false);
+      if (mediaRecorderRef.current) {
+        try {
+          mediaRecorderRef.current.stream
+            ?.getTracks()
+            ?.forEach((t) => t.stop());
+        } catch {
+          // ignore
+        }
+        mediaRecorderRef.current = null;
+      }
+    }
 
-  const jobTitle = useMemo(
-    () => job?.title ?? job?.jobTitle ?? "Job Interview",
-    [job]
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, [open, job, jobTitle, resumeSkills, resumeProfile]);
 
   async function handleSend() {
     const trimmed = input.trim();
-    if (!trimmed || !sessionId || sending) return;
+    if (!trimmed || !sessionId || sending || starting || recording) return;
 
     setSending(true);
     setMessages((prev) => [
@@ -103,24 +195,21 @@ export default function ChatDialog({ open, onClose, job }) {
     setInput("");
 
     try {
-      // 1) POST user message
-      const { messageId } = await sendInterviewMessage({
+      // POST user message and get ChatResponse back
+      const chatResponse = await sendInterviewMessage({
         sessionId,
         content: trimmed,
+        file: null,
       });
 
-      // 2) GET assistant reply
-      const reply = await getInterviewReply({
-        sessionId,
-        forMessageId: messageId,
-      });
+      const reply = mapBackendMessage(chatResponse.reply);
 
       setMessages((prev) => [
         ...prev,
-        {
-          role: reply.role || "assistant",
-          content: reply.content || "(empty reply)",
-          timestamp: reply.timestamp || Date.now(),
+        reply || {
+          role: "assistant",
+          content: "(empty reply)",
+          timestamp: Date.now(),
         },
       ]);
     } catch (e) {
@@ -146,10 +235,166 @@ export default function ChatDialog({ open, onClose, job }) {
     }
   }
 
+  // ✅ Evaluate button
+  async function handleEvaluate() {
+    if (!sessionId || evaluating || starting || recording) return;
+
+    setEvaluating(true);
+    try {
+      const res = await evaluateInterview({ sessionId });
+
+      const text = `### Overall Evaluation\n\n${res.evaluation}\n\n---\n\n${res.explanation}`;
+
+      // push as a normal assistant message (markdown rendered)
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: text,
+          timestamp: Date.now(),
+        },
+      ]);
+    } catch (e) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            "I couldn’t get the evaluation right now. Please try again later.",
+          timestamp: Date.now(),
+          error: String(e.message || e),
+        },
+      ]);
+    } finally {
+      setEvaluating(false);
+    }
+  }
+
+  // 🎙 Voice recording logic
+  async function handleToggleRecord() {
+    if (!sessionId || starting || sending || evaluating) return;
+
+    // Stop recording
+    if (recording) {
+      try {
+        mediaRecorderRef.current?.stop();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    // Start recording
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            "This browser does not support audio recording. Please try a different browser.",
+          timestamp: Date.now(),
+        },
+      ]);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // stop audio tracks
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+
+        if (audioChunksRef.current.length === 0) return;
+
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+          const fileName = `interview-recording-${Date.now()}.webm`;
+  const file = new File([audioBlob], fileName, { type: "audio/webm" });
+
+  // ✅ Create a local URL so we can play this audio again
+  const audioUrl = URL.createObjectURL(audioBlob);
+  const timestamp = Date.now();
+
+  setSending(true);
+
+  // ✅ Add a voice message with a playable URL
+  setMessages((prev) => [
+    ...prev,
+    {
+      role: "user",
+      content: "[Voice message]",
+      modality: "voice",
+      audioUrl,          // <- this is what we’ll use in the UI
+      fileName,
+      timestamp,
+    },
+  ]);
+
+  try {
+    const chatResponse = await sendInterviewMessage({
+      sessionId,
+      content: "",
+      file,
+    });
+
+    const reply = mapBackendMessage(chatResponse.reply);
+    setMessages((prev) => [
+      ...prev,
+      reply || {
+        role: "assistant",
+        content: "(empty reply)",
+        timestamp: Date.now(),
+      },
+    ]);
+  } catch (e) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content:
+          "I couldn’t send the voice message. Please try again or use text.",
+        timestamp: Date.now(),
+        error: String(e.message || e),
+      },
+    ]);
+  } finally {
+    setSending(false);
+  }
+};
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setRecording(true);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            "Could not access your microphone. Please check permissions and try again.",
+          timestamp: Date.now(),
+        },
+      ]);
+    }
+  }
+
   return (
     <Dialog
       fullWidth
-      maxWidth="md"
+      //fullScreen="true"
+      maxWidth="xl" //xs, sm, md, lg, xl)
+     
       open={open}
       onClose={onClose}
       PaperProps={{ sx: { borderRadius: 3 } }}
@@ -200,7 +445,8 @@ export default function ChatDialog({ open, onClose, job }) {
                         <Typography
                           variant="caption"
                           sx={{
-                            color: m.role === "user" ? "text.secondary" : "#005dab",
+                            color:
+                              m.role === "user" ? "text.secondary" : "#005dab",
                             fontWeight: 600,
                           }}
                         >
@@ -215,7 +461,9 @@ export default function ChatDialog({ open, onClose, job }) {
                             borderRadius: 2,
                             boxShadow: 1,
                             bgcolor:
-                              m.role === "user" ? "background.paper" : "rgba(0,93,171,0.06)",
+                              m.role === "user"
+                                ? "background.paper"
+                                : "rgba(0,93,171,0.06)",
                             border:
                               m.role === "user"
                                 ? "1px solid rgba(0,0,0,0.08)"
@@ -224,7 +472,35 @@ export default function ChatDialog({ open, onClose, job }) {
                             wordBreak: "break-word",
                           }}
                         >
-                          <Typography variant="body2">{m.content}</Typography>
+                          {m.modality === "voice" && m.audioUrl ? (
+                            <>
+                              <Typography
+                                variant="body2"
+                                sx={{ mb: 0.5, fontStyle: "italic" }}
+                              >
+                                {m.content || "[Voice message]"}
+                              </Typography>
+                              <audio controls src={m.audioUrl} style={{ width: "100%" }}>
+                                Your browser does not support the audio element.
+                              </audio>
+                            </>
+                          ) : (
+                            <Typography
+                              variant="body2"
+                              component="div"
+                              sx={{
+                                "& h1, & h2, & h3, & h4": { fontWeight: 600, mt: 1.5, mb: 0.5 },
+                                "& ul": { pl: 3, mb: 1 },
+                                "& li": { mb: 0.5 },
+                                "& hr": { my: 1.5 },
+                              }}
+                            >
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {m.content}
+                              </ReactMarkdown>
+                            </Typography>
+                          )}
+
                           {m.error && (
                             <>
                               <Divider sx={{ my: 1 }} />
@@ -245,7 +521,9 @@ export default function ChatDialog({ open, onClose, job }) {
                     secondary={
                       <Stack direction="row" alignItems="center" spacing={1.5}>
                         <CircularProgress size={18} />
-                        <Typography variant="body2">Waiting for reply…</Typography>
+                        <Typography variant="body2">
+                          Waiting for reply…
+                        </Typography>
                       </Stack>
                     }
                   />
@@ -255,7 +533,7 @@ export default function ChatDialog({ open, onClose, job }) {
           )}
         </Box>
 
-        {/* Composer */}
+        {/* Composer + Evaluate + Voice + Send */}
         <Box
           sx={{
             position: "sticky",
@@ -274,13 +552,59 @@ export default function ChatDialog({ open, onClose, job }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
           />
-          <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1 }}>
+          <Stack
+            direction="row"
+            alignItems="center"
+
+            sx={{ mt: 2, p: 2}}
+          >
+            {/* Left: Evaluate */}
+            <Button
+              variant="outlined"
+              onClick={handleEvaluate}
+              disabled={
+                !sessionId || evaluating || starting || sending || recording
+              }
+              sx={{ borderRadius: 2, p:2, ml:-2, mt:-2 }}
+            >
+              {evaluating ? "Evaluating…" : "Evaluate"}
+            </Button>
+
+            {/* Middle: Voice record */}
+            <Box
+              sx={{
+                flex: 1,
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+            {/* Middle: Voice record (DISABLED FOR THE PROTYPE BECAUSE IT IS NOT FULLY TESTED YET)*/}
+          
+              <Button
+                variant={recording ? "contained" : "outlined"}
+                color={recording ? "error" : "secondary"}
+                startIcon={<MicIcon />}
+                onClick={handleToggleRecord}
+                disabled={!sessionId || starting || sending || evaluating}
+                sx={{ borderRadius: "999px" }}
+              >
+                {recording ? "Stop" : "Record"}
+              </Button> 
+            </Box>
+
+            {/* Right: Send */}
             <Button
               onClick={handleSend}
               variant="contained"
               endIcon={<SendIcon />}
-              disabled={!sessionId || !input.trim() || sending || starting}
-              sx={{ borderRadius: 2 }}
+              disabled={
+                !sessionId ||
+                !input.trim() ||
+                sending ||
+                starting ||
+                recording
+              }
+              sx={{ borderRadius: 2, p:2, mr:-2, mt:-2}}
             >
               Send
             </Button>
