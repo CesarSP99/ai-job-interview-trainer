@@ -1,13 +1,15 @@
-# 📊 Smart Resume Parser
+# 📊 AI Career Assistant Platform  
+### Resume Matching • Job Insights • AI Interview Training (Text + Voice)
 
-An end-to-end resume parsing and job recommendation system with an interactive dashboard. Built with **FastAPI**, **React**, **LLMs (Gemini Flash 2.0)**, and **SBERT embeddings**, the system supports AI-based skill extraction, job matching, and data visualization.
+An end‑to‑end, AI‑powered platform that helps users **analyze their resumes**, **discover job opportunities**, and **train for interviews** through an adaptive voice/text conversation system.
 
-Project developed for **CSCE679 – Data Visualization**.
+This project integrates **FastAPI**, **React**, **Gemini 2.5 Flash**, **Whisper STT**, **SBERT embeddings**, and **Explainable AI evaluation**.
+
+Developed for **CSCE679 – Data Visualization** and expanded into a complete **AI Interview Coach**.
 
 ---
 
 ## 🗂️ Table of Contents
-
 - [Overview](#overview)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
@@ -23,33 +25,81 @@ Project developed for **CSCE679 – Data Visualization**.
 
 ## 🌐 Overview
 
-This system allows users to upload a resume and receive job matches, salary trends, and profile insights. It features:
+The system provides a full pipeline from résumé → job match → interview practice:
 
-- AI-powered skill extraction using Ollama and Gemini
-- SBERT embedding-based job similarity
-- LLM-generated match explanations
-- Interactive charts and maps in the dashboard
+### **1️⃣ Resume Understanding**
+- Resume text extraction  
+- Skills, responsibilities, and experience parsing  
+- Embedding-based similarity scoring  
+- LLM-based reranking with match explanations  
+
+### **2️⃣ Job Insights**
+- Interactive salary insights  
+- Word clouds  
+- Skill-match radial charts  
+- U.S. salary maps  
+
+### **3️⃣ Interview Training (NEW)**
+- Start a session for any matched job  
+- AI interviewer powered by **Gemini 2.5 Flash**  
+- Unified endpoint for **text or voice**  
+- **Whisper** transcription  
+- Local **sentiment + emotion analysis**  
+- Session stored in SQLite  
+- Final **explainable evaluation** (score, strengths, weaknesses, emotional patterns)
 
 ---
 
 ## ✨ Features
 
-- PDF resume parsing
-- AI skill extraction and match justification
-- Interactive word clouds, radar charts, salary trends
-- Full CRUD job management via FastAPI
-- Responsive design using Material UI
-- Word cloud from extracted skills
-- U.S. salary distribution map via React Leaflet
-- SQLite-powered local database (external)
+### 📄 Resume & Job Intelligence
+- PDF resume parsing with PyMuPDF  
+- Skill extraction using Gemini (with Mistral fallback)  
+- Job similarity via SBERT embeddings  
+- Match reasoning & LLM re-ranking  
+- Interactive visual dashboard (React)
+
+### 🎤 AI Interview Coach
+- Start interview sessions based on matched jobs  
+- Gemini-powered dynamic follow-up questions  
+- Voice or text responses through one API  
+- Whisper STT + sentiment/emotion extraction  
+- Full conversation history  
+- End-of-session evaluation with:
+  - Score  
+  - Strengths  
+  - Weaknesses  
+  - Improvement suggestions  
+  - Explanation referencing the user’s emotional tone  
+
+### 📊 Visualization Dashboard
+- Word clouds  
+- Salary trend charts  
+- Map-based visualization via React Leaflet  
+- Interactive component-based UI with MUI + D3.js  
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Backend**: FastAPI, SBERT, Gemini Flash 2.0, SQLite, SpaCy
-- **Frontend**: React, MUI v5, Recharts, D3.js, React Leaflet, Axios
-- **Dockerized**: API (`resume-api`), Dashboard (`resume-frontend`)
+### Backend
+- **FastAPI**
+- **Google Gemini 2.5 Flash**
+- **Whisper STT (Faster‑Whisper)**
+- **SentenceTransformers (MiniLM)**
+- **SpaCy**
+- **SQLite + Alembic**
+
+### Frontend
+- **React**
+- **Material UI**
+- **Recharts, D3.js**
+- **React Leaflet**
+- **Axios**
+
+### Deployment
+- Docker Compose: Backend + Frontend  
+- Optional: Ollama for fallback LLM  
 
 ---
 
@@ -57,47 +107,51 @@ This system allows users to upload a resume and receive job matches, salary tren
 
 ```
 ResumeDashboard/
-├── backend/                     # FastAPI-based resume matcher
-│   ├── app/                     # Routes, services, models
+├── backend/                        # FastAPI backend (resume + interview)
+│   ├── app/
+│   │   ├── api/                    # Resume, jobs, interview endpoints
+│   │   ├── services/               # LLM, audio, interview flow
+│   │   ├── models/                 # SQLAlchemy ORM
+│   │   ├── schemas/                # Pydantic validation models
+│   │   ├── db/                     # Database + Alembic migrations
+│   │   └── main.py                 # FastAPI entrypoint
 │   └── Dockerfile
 ├── frontend/
-│   └── dataviz-dashboard/       # React-based dashboard
-│       ├── src/                 # Pages, components, charts
+│   └── dataviz-dashboard/          # React dashboard
+│       ├── src/                    # Components, pages, charts, UI
 │       └── Dockerfile
-├── docker-compose.yml           # Compose file to run full stack
-└── README.md                    # This file
+├── docker-compose.yml
+└── README.md                       # This file
 ```
 
 ---
 
 ## ⚙️ Setup Instructions
 
-### 🐳 Docker Compose
-
-Clone the repo and run both backend and frontend using the provided `docker-compose.yml` in this directory:
+### 🐳 Docker Compose (Recommended)
 
 ```bash
-git clone https://github.com/CodeBreakerMG/ResumeDashboardRecommendation.git
-cd ResumeDashboardRecommendation
+git clone https://github.com/CesarSP99/ai-job-interview-trainer
+cd ai-job-interview-trainer
 
-# Start all services
 docker compose up --build
 ```
 
-Make sure your **SQLite database** (e.g., `app.db`) exists and mount its path in `docker-compose.yml`. You can get the database from [here](https://drive.google.com/drive/folders/1Xgr6kozgCiz7j0UL4Hshb0uUTh2S7f28?usp=sharing).
+📌 Access:
+- Backend API → `http://localhost:8000/docs`
+- Frontend → `http://localhost:3000`
 
-Access:
+Ensure `.env` contains:
 
-- Backend: `http://localhost:8000/docs`
-- Frontend: `http://localhost:3000`
-
-> ⚠️ **Make sure your `.env` file contains a valid `GEMINI_API_KEY`:**
+```env
+GEMINI_API_KEY=your-key
+```
 
 ---
 
-### 🧪 Manual Setup
+## 🧪 Manual Setup
 
-#### Backend (FastAPI)
+### Backend
 
 ```bash
 cd backend
@@ -108,9 +162,9 @@ python -m spacy download en_core_web_sm
 uvicorn app.main:app --reload
 ```
 
-> API: `http://localhost:8000`
+> http://localhost:8000/docs
 
-#### Frontend (React)
+### Frontend
 
 ```bash
 cd frontend/dataviz-dashboard
@@ -118,53 +172,46 @@ npm install
 npm start
 ```
 
-> Frontend: `http://localhost:3000`
+> http://localhost:3000
 
 ---
 
 ## 🔗 API Reference
 
-**POST** `/resume/match`  
-Upload a resume to get job matches and insights.
+### **POST /resume/match**
+Upload a PDF and get:
+- Extracted skills
+- Matched jobs
+- Match reasons
+- Word cloud
+- Salary trends
+- Resume profile breakdown
 
-**Request:** `multipart/form-data` with `file` = resume PDF
+### **POST /interview/start**
+Starts an interview for a chosen job.
 
-**Response:**
+### **POST /interview/message**
+Unified text/voice input for conversation.
 
-```json
-{
-  "resume_skills": [...],
-  "matches": [
-    {
-      "jobId": 123,
-      "matchScore": 0.85,
-      "matchedSkills": [...],
-      "matchReason": "Mentions SQL and Docker, aligns with role."
-    }
-  ],
-  "wordCloud": [
-    { "text": "python", "value": 5 }
-  ],
-  "salaryTrend": { /* ... */ },
-  "resumeProfile": { /* education, experience, industries */ }
-}
-```
+### **POST /interview/evaluate**
+Provides structured final interview evaluation.
 
 ---
 
 ## 🙌 Credits
 
-- Rishik Gupta
-- Manuel Moran
-- Cesar Salazar
-- Madelein Villegas
+**Current Contributors**
+- Manuel Moran  
+- Cesar Salazar  
+- Nhan Nguyen  
 
-This project was developed collaboratively as part of the Spring 2025 CSCE679 course.
+**Original Contributors**
+- Rishik Gupta  
+- Madelein Villegas  
+
+Developed as part of **Spring 2025 CSCE679** and expanded into a full AI Interview Platform.
 
 ---
 
 ## 📄 License
-
 MIT License
-
----

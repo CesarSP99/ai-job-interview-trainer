@@ -78,8 +78,8 @@ backend/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/CodeBreakerMG/ResumeDashboardRecommendation.git
-cd ResumeDashboardRecommendation/backend
+git clone ai-job-interview-trainer
+cd ai-job-interview-trainer/backend
 ```
 
 ### 2. Create Environment
