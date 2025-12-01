@@ -28,6 +28,16 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 // Helper: map backend Message -> local shape
+
+function formatDuration(ms) {
+  if (!ms || ms < 0) return "0:00";
+  const totalSeconds = Math.floor(ms/1000)
+  const minutes = Math.floor(totalSeconds/60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+// Helper: map backend Message -> local shape
 function mapBackendMessage(m) {
   if (!m) return null;
   return {
@@ -38,6 +48,8 @@ function mapBackendMessage(m) {
     timestamp: Date.now(),
   };
 }
+
+
 
 /*
 StartRequest payload example (what we send to /interview/start):
@@ -62,6 +74,15 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
   const [sending, setSending] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
 
+  // master timer
+  const [interviewStartTime, setInterviewStartTime] = useState(null);
+  const [interviewEndTime, setInterviewEndTime] = useState(null);
+  const [now, setNow] = useState(null);
+
+  // per-message timer: last assistant message time
+  const [lastAssistantTimestamp, setLastAssistantTimestamp] = useState(null);
+
+
   // audio recording state
   const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -80,6 +101,19 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     () => job?.title ?? job?.jobTitle ?? "Job Interview",
     [job]
   );
+
+    // master chronometer ticker
+  useEffect(() => {
+    if (!interviewStartTime || interviewEndTime) return;
+
+    setNow(Date.now());
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(id);
+  }, [interviewStartTime, interviewEndTime]);
+
 
   // Cleanup recording on unmount/close
   useEffect(() => {
@@ -127,17 +161,26 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
         const res = await startInterviewSession(startPayload);
         if (cancelled) return;
 
-        // Backend response: { session_id, first_message }
+        const startTs = Date.now();
         setSessionId(res.session_id);
+        setInterviewStartTime(startTs);
+        setInterviewEndTime(null);
 
-        const firstMsg = mapBackendMessage(res.first_message);
-        setMessages([
-          firstMsg || {
-            role: "assistant",
-            content: `Hi! I’m your AI interviewer for "${jobTitle}". I’ll ask questions like a real interview and give feedback. Ready to start?`,
-            timestamp: Date.now(),
-          },
-        ]);
+        const firstMsgBackend = res.first_message;
+        const firstMsg = firstMsgBackend
+          ? {
+              ...mapBackendMessage(firstMsgBackend),
+              timestamp: startTs,
+            }
+          : {
+              role: "assistant",
+              content: `Hi! I’m your AI interviewer for "${jobTitle}". I’ll ask questions like a real interview and give feedback. Ready to start?`,
+              timestamp: startTs,
+            };
+
+        setMessages([firstMsg]);
+        setLastAssistantTimestamp(startTs);
+
       } catch (e) {
         if (!cancelled) {
           setMessages([
@@ -165,7 +208,12 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
       setStarting(false);
       setSending(false);
       setEvaluating(false);
+      setInterviewStartTime(null);
+      setInterviewEndTime(null);
+      setNow(null);
+      setLastAssistantTimestamp(null);
       setRecording(false);
+      
       if (mediaRecorderRef.current) {
         try {
           mediaRecorderRef.current.stream
@@ -183,35 +231,48 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     };
   }, [open, job, jobTitle, resumeSkills, resumeProfile]);
 
-  async function handleSend() {
+
+    const masterElapsedMs =
+    interviewStartTime == null
+      ? 0
+      : (interviewEndTime ?? now ?? interviewStartTime) - interviewStartTime;
+
+    async function handleSend() {
     const trimmed = input.trim();
-    if (!trimmed || !sessionId || sending || starting || recording) return;
+    if (!trimmed || !sessionId || sending) return;
+
+    const nowTs = Date.now();
+    const responseTimeMs =
+      lastAssistantTimestamp != null ? nowTs - lastAssistantTimestamp : null;
 
     setSending(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: trimmed, timestamp: Date.now() },
+      {
+        role: "user",
+        content: trimmed,
+        timestamp: nowTs,
+        responseTimeMs,          // store per-message timing here
+      },
     ]);
     setInput("");
 
     try {
-      // POST user message and get ChatResponse back
       const chatResponse = await sendInterviewMessage({
         sessionId,
         content: trimmed,
         file: null,
       });
 
-      const reply = mapBackendMessage(chatResponse.reply);
+      const reply = mapBackendMessage(chatResponse.reply) || {
+        role: "assistant",
+        content: "(empty reply)",
+        timestamp: Date.now(),
+      };
 
-      setMessages((prev) => [
-        ...prev,
-        reply || {
-          role: "assistant",
-          content: "(empty reply)",
-          timestamp: Date.now(),
-        },
-      ]);
+      setMessages((prev) => [...prev, reply]);
+      setLastAssistantTimestamp(reply.timestamp ?? Date.now());
+
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -228,6 +289,8 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     }
   }
 
+
+  
   function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -240,6 +303,8 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     if (!sessionId || evaluating || starting || recording) return;
 
     setEvaluating(true);
+    setInterviewEndTime(Date.now());   // stop master timer here
+
     try {
       const res = await evaluateInterview({ sessionId });
 
@@ -309,69 +374,75 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
         }
       };
 
-      mediaRecorder.onstop = async () => {
-        // stop audio tracks
-        stream.getTracks().forEach((t) => t.stop());
-        setRecording(false);
+    mediaRecorder.onstop = async () => {
+      // stop audio tracks
+      stream.getTracks().forEach((t) => t.stop());
+      setRecording(false);
 
-        if (audioChunksRef.current.length === 0) return;
+      if (audioChunksRef.current.length === 0) return;
 
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: "audio/webm",
+      const audioBlob = new Blob(audioChunksRef.current, {
+        type: "audio/webm",
+      });
+      const fileName = `interview-recording-${Date.now()}.webm`;
+      const file = new File([audioBlob], fileName, { type: "audio/webm" });
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      // ✅ define timestamp BEFORE using it
+      const timestamp = Date.now();
+      const responseTimeMs =
+        lastAssistantTimestamp != null ? timestamp - lastAssistantTimestamp : null;
+
+      setSending(true);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "user",
+          content: "[Voice message]",
+          modality: "voice",
+          audioUrl,
+          fileName,
+          timestamp,
+          responseTimeMs,
+        },
+      ]);
+
+      try {
+        const chatResponse = await sendInterviewMessage({
+          sessionId,
+          content: "",
+          file,
         });
-          const fileName = `interview-recording-${Date.now()}.webm`;
-  const file = new File([audioBlob], fileName, { type: "audio/webm" });
 
-  // ✅ Create a local URL so we can play this audio again
-  const audioUrl = URL.createObjectURL(audioBlob);
-  const timestamp = Date.now();
+        const reply = mapBackendMessage(chatResponse.reply);
+        setMessages((prev) => [
+          ...prev,
+          reply || {
+            role: "assistant",
+            content: "(empty reply)",
+            timestamp: Date.now(),
+          },
+        ]);
 
-  setSending(true);
+        // optional but recommended – keep per-message timer in sync
+        setLastAssistantTimestamp(reply?.timestamp ?? Date.now());
+      } catch (e) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content:
+              "I couldn’t send the voice message. Please try again or use text.",
+            timestamp: Date.now(),
+            error: String(e.message || e),
+          },
+        ]);
+      } finally {
+        setSending(false);
+      }
+    };
 
-  // ✅ Add a voice message with a playable URL
-  setMessages((prev) => [
-    ...prev,
-    {
-      role: "user",
-      content: "[Voice message]",
-      modality: "voice",
-      audioUrl,          // <- this is what we’ll use in the UI
-      fileName,
-      timestamp,
-    },
-  ]);
-
-  try {
-    const chatResponse = await sendInterviewMessage({
-      sessionId,
-      content: "",
-      file,
-    });
-
-    const reply = mapBackendMessage(chatResponse.reply);
-    setMessages((prev) => [
-      ...prev,
-      reply || {
-        role: "assistant",
-        content: "(empty reply)",
-        timestamp: Date.now(),
-      },
-    ]);
-  } catch (e) {
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content:
-          "I couldn’t send the voice message. Please try again or use text.",
-        timestamp: Date.now(),
-        error: String(e.message || e),
-      },
-    ]);
-  } finally {
-    setSending(false);
-  }
-};
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
@@ -399,8 +470,32 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
       onClose={onClose}
       PaperProps={{ sx: { borderRadius: 3 } }}
     >
-      <DialogTitle sx={{ pr: 6 }}>
-        AI Interviewer — {jobTitle}
+      <DialogTitle
+        sx={{
+          pr: 6,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        {/* Left side: title + total time */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            AI Interviewer — {jobTitle}
+          </Typography>
+
+          {/* ⏱ total time label */}
+          {interviewStartTime && (
+            <Typography
+              variant="body2"
+              sx={{  position: "absolute", right: 50, top: 22 , color: "text.secondary", fontStyle: "italic" , fontSize: "16px"}}
+            >
+              Total time: {formatDuration(masterElapsedMs)}
+            </Typography>
+          )}
+        </Box>
+
+        {/* Right side: close button */}
         <IconButton
           aria-label="close"
           onClick={onClose}
@@ -409,6 +504,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
           <CloseIcon />
         </IconButton>
       </DialogTitle>
+
 
       <DialogContent dividers sx={{ pt: 1, pb: 0 }}>
         {/* Chat timeline */}
@@ -500,7 +596,15 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                               </ReactMarkdown>
                             </Typography>
                           )}
-
+                          {/* show response time for user messages */}
+                          {m.role === "user" && m.responseTimeMs != null && (
+                            <Typography
+                              variant="caption"
+                              sx={{ display: "block", mt: 0.5, color: "text.secondary" }}
+                            >
+                              Response time: {formatDuration(m.responseTimeMs)}
+                            </Typography>
+                          )}
                           {m.error && (
                             <>
                               <Divider sx={{ my: 1 }} />
