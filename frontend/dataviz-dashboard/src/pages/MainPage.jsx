@@ -22,7 +22,7 @@ import jobsData from "../assets/json/jobsData.json"; // DEFAULT JSON AS AN EXAMP
 /*API CONNECTION, */
 const FAST_API_URL =  "https://p58bnv54-8000.usw3.devtunnels.ms/resume/match" 
 //const FAST_API_URL =  "https://cloud.cesarsp.com:26000/resume/match"  // URL CONNECTION. IF NOT WORKING, IT WILL DEFAULT TO LOCAL JSON
-const TIMEOUT_MILISECONDS = 60000                          
+const TIMEOUT_MILISECONDS = 6                       
 
 const MainPage = () => {
   const location = useLocation();

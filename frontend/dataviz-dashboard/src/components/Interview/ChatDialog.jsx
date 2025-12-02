@@ -15,6 +15,9 @@ import {
   CircularProgress,
   Divider,
   Stack,
+  Slider,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import SendIcon from "@mui/icons-material/Send";
@@ -91,6 +94,10 @@ export default function ChatDialog({
   const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  //audio playback options for the interview:
+  const [playbackRate, setPlaybackRate] = useState(1.0);      // 1x default
+  const [showInterviewerText, setShowInterviewerText] = useState(true);
 
   const listRef = useRef(null);
   const lastAudioRef = useRef(null); // for assistant TTS playback
@@ -236,21 +243,48 @@ export default function ChatDialog({
   }, [open, job, jobTitle, resumeSkills, resumeProfile]);
 
   // auto-play assistant TTS audio when a new assistant message arrives
-  useEffect(() => {
+  // auto-play assistant TTS audio when a NEW assistant message arrives
+  /*useEffect(() => {
     if (!messages.length) return;
 
     const last = messages[messages.length - 1];
 
     if (last.role === "assistant" && last.ttsUrl) {
+      // stop any previous autoplay audio
+      if (lastAudioRef.current) {
+        try {
+          lastAudioRef.current.pause();
+        } catch {
+          // ignore
+        }
+      }
+
       const audio = new Audio(`${BASE_URL}${last.ttsUrl}`);
+      audio.playbackRate = playbackRate;  // use current slider value at start
       lastAudioRef.current = audio;
+
       audio
         .play()
         .catch((err) =>
           console.warn("Could not autoplay assistant audio:", err)
         );
     }
-  }, [messages]);
+  }, [messages]);   // 👈 ONLY depends on messages now
+
+  // whenever playbackRate changes, update the currently playing assistant audio
+  useEffect(() => {
+    if (lastAudioRef.current) {
+      try {
+        lastAudioRef.current.playbackRate = playbackRate;
+      } catch {
+        // ignore
+      }
+    }
+  }, [playbackRate]);
+*/
+
+const lastAutoPlayedIndexRef = useRef(-1);
+
 
   const masterElapsedMs =
     interviewStartTime == null
@@ -532,6 +566,48 @@ export default function ChatDialog({
       </DialogTitle>
 
       <DialogContent dividers sx={{ pt: 1, pb: 0 }}>
+
+      {/* Options toolbar: playback speed */}
+{/* Options toolbar: playback speed + show/hide interviewer text */}
+<Box
+  sx={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    mb: 1.5,
+    px: 0.5,
+  }}
+>
+          {/* Left: playback speed */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Typography variant="body2">Playback speed</Typography>
+            <Slider
+              value={playbackRate}
+              onChange={(_, value) => setPlaybackRate(value)}
+              step={0.25}
+              min={0.5}
+              max={1.5}
+              sx={{ width: 160 }}
+            />
+            <Typography variant="caption">
+              {playbackRate.toFixed(2)}x
+            </Typography>
+          </Box>
+
+          {/* Right: show/hide interviewer text */}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showInterviewerText}
+                onChange={(e) => setShowInterviewerText(e.target.checked)}
+                size="small"
+              />
+            }
+            label="Show interviewer text"
+          />
+        </Box>
+
+
         {/* Chat timeline */}
         <Box
           ref={listRef}
@@ -593,43 +669,59 @@ export default function ChatDialog({
                             wordBreak: "break-word",
                           }}
                         >
-                          {m.modality === "voice" && m.audioUrl ? (
-                            <>
-                              <Typography
-                                variant="body2"
-                                sx={{ mb: 0.5, fontStyle: "italic" }}
-                              >
-                                {m.content || "[Voice message]"}
-                              </Typography>
-                              <audio
-                                controls
-                                src={m.audioUrl}
-                                style={{ width: "100%" }}
-                              >
-                                Your browser does not support the audio
-                                element.
-                              </audio>
-                            </>
-                          ) : (
+
+                        {m.modality === "voice" && m.audioUrl ? (
+                          // User voice message: always visible
+                          <>
                             <Typography
                               variant="body2"
-                              component="div"
-                              sx={{
-                                "& h1, & h2, & h3, & h4": {
-                                  fontWeight: 600,
-                                  mt: 1.5,
-                                  mb: 0.5,
-                                },
-                                "& ul": { pl: 3, mb: 1 },
-                                "& li": { mb: 0.5 },
-                                "& hr": { my: 1.5 },
+                              sx={{ mb: 0.5, fontStyle: "italic" }}
+                            >
+                              {m.content || "[Voice message]"}
+                            </Typography>
+                            <audio
+                              controls
+                              src={m.audioUrl}
+                              style={{ width: "100%" }}
+                              ref={(el) => {
+                                if (el) {
+                                  el.playbackRate = playbackRate;
+                                }
                               }}
                             >
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {m.content}
-                              </ReactMarkdown>
-                            </Typography>
-                          )}
+                              Your browser does not support the audio element.
+                            </audio>
+                          </>
+                        ) : m.role === "assistant" && !showInterviewerText && m.ttsUrl ? (
+                          // Assistant question with TTS: text hidden, encourage listening
+                          <Typography
+                            variant="body2"
+                            sx={{ fontStyle: "italic", color: "text.secondary" }}
+                          >
+                            Interviewer text hidden — listen to the audio.
+                          </Typography>
+                        ) : (
+                          // Default: render markdown text
+                          <Typography
+                            variant="body2"
+                            component="div"
+                            sx={{
+                              "& h1, & h2, & h3, & h4": {
+                                fontWeight: 600,
+                                mt: 1.5,
+                                mb: 0.5,
+                              },
+                              "& ul": { pl: 3, mb: 1 },
+                              "& li": { mb: 0.5 },
+                              "& hr": { my: 1.5 },
+                            }}
+                          >
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {m.content}
+                            </ReactMarkdown>
+                          </Typography>
+                        )}
+
 
                           {/* user response time */}
                           {m.role === "user" && m.responseTimeMs != null && (
@@ -653,12 +745,33 @@ export default function ChatDialog({
                                 controls
                                 src={`${BASE_URL}${m.ttsUrl}`}
                                 style={{ width: "100%" }}
+                                ref={(el) => {
+                                  if (!el) return;
+
+                                  // always keep playback speed in sync with slider
+                                  el.playbackRate = playbackRate;
+
+                                  // Auto-play ONLY when this is the "newest" assistant message
+                                  // and we haven’t auto-played this index yet
+                                  if (
+                                    idx === messages.length - 1 &&
+                                    lastAutoPlayedIndexRef.current !== idx
+                                  ) {
+                                    lastAutoPlayedIndexRef.current = idx;
+                                    el
+                                      .play()
+                                      .catch((err) =>
+                                        console.warn("Could not autoplay assistant audio:", err)
+                                      );
+                                  }
+                                }}
                               >
-                                Your browser does not support the audio
-                                element.
+                                Your browser does not support the audio element.
                               </audio>
                             </Box>
                           )}
+
+
 
                           {m.error && (
                             <>
