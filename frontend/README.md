@@ -1,6 +1,6 @@
-# 📊 Smart Resume Parser — Frontend
+# 📊 Smart Resume Parser and AI Interviewer (Recommender AI) — Frontend
 
-This is the React frontend for the Resume Dashboard Recommendation system. Users can upload their resume and receive a visual, interactive dashboard with:
+This is the React frontend for the Resume Dashboard Recommendation and AI Interviewer system. Users can upload their resume and receive a visual, interactive dashboard with:
 
 - ✅ Top job matches with detailed insights
 - ✅ Skill match breakdowns
@@ -8,6 +8,9 @@ This is the React frontend for the Resume Dashboard Recommendation system. Users
 - ✅ Benefits radar charts
 - ✅ US map visualizations for job distribution
 
+New functionality includes:
+- ✅ AI chatbot for interview prep.
+- ✅ Interview Evaluation Tool - To see feedback from the Interview.
 ---
 
 ## ⚙️ Tech Stack
@@ -72,59 +75,62 @@ docker run -it --rm -p 3000:3000 resume-frontend
 ```
 dataviz-dashboard/               # Root folder of the React + Data Visualization Dashboard project
 │
-├── .idea/                        # IDE settings (for JetBrains IDEs, safe to ignore in most cases)
-├── .vscode/                      # VSCode workspace settings (extensions, launch configs)
-├── node_modules/                 # Auto-generated dependencies folder (managed by npm/yarn)
-├── public/                       # Static public assets (index.html, favicon, etc.)
+├── .idea/                    	# IDE settings (for JetBrains IDEs, safe to ignore in most cases)
+├── .vscode/                  	# VSCode workspace settings (extensions, launch configs)
+├── node_modules/             	# Auto-generated dependencies folder (managed by npm/yarn)
+├── public/                   	# Static public assets (index.html, favicon, etc.)
 │
-├── src/                          # Main source code for the React application
-│   ├── assets/                   # Static assets like fonts, JSON data, and sample resumes
-│   │   ├── fonts/                # Custom font files (e.g., Flexo font)
-│   │   ├── json/                 # Local JSON data used for fallback or testing
-│   │   └── sample_resumes/       # Example resumes for testing the upload & parsing features
+├── src/                      	# Main source code for the React application
+│   ├── assets/               	# Static assets like fonts, JSON data, and sample resumes
+│   │   ├── fonts/            	# Custom font files (e.g., Flexo font)
+│   │   ├── json/             	# Local JSON data used for fallback or testing
+│   │   └── sample_resumes/   	# Example resumes for testing the upload & parsing features
 │   │
-│   ├── components/               # Reusable UI components grouped by function
-│   │   ├── Charts/               # All data visualization components (Radar, Line, Circular, Heatmaps)
+│   ├── components/           	# Reusable UI components grouped by function
+│   │   ├── Charts/           	# All data visualization components (Radar, Line, Circular, Heatmaps)
 │   │   │   ├── JobBenefitsRadarChart.jsx   # Radar chart for visualizing job benefit coverage
-│   │   │   ├── JobComparisonChart.jsx      # Line chart for salary vs experience progression
-│   │   │   ├── LocationMap.jsx             # Map visualization for job locations
-│   │   │   ├── MatchScoreChart.jsx         # Circular progress charts for match scores
-│   │   │   └── SkillFrequencyChart.jsx     # Heatmap/grid for skill frequency visualization
+│   │   │   ├── JobComparisonChart.jsx  	# Line chart for salary vs experience progression
+│   │   │   ├── LocationMap.jsx         	# Map visualization for job locations
+│   │   │   ├── MatchScoreChart.jsx     	# Circular progress charts for match scores
+│   │   │   └── SkillFrequencyChart.jsx 	# Heatmap/grid for skill frequency visualization
 │   │   │
-│   │   ├── Grouper/              # Components for grouping textual data & summaries
-│   │   │   ├── JobDetailView.jsx         # Detailed view of a selected job
-│   │   │   └── ResumeSummary.jsx         # Overview panel showing parsed resume stats
+│   │   ├── Grouper/          	# Components for grouping textual data & summaries
+│   │   │   ├── JobDetailView.jsx     	# Detailed view of a selected job
+│   │   │   └── ResumeSummary.jsx     	# Overview panel showing parsed resume stats
 │   │   │
-│   │   ├── Layout/               # Layout and helper UI components
-│   │   │   ├── AppBarTip.jsx              # Custom AppBar with file info and toggle buttons
-│   │   │   ├── EducationCard.jsx          # Card component for displaying education entries
-│   │   │   ├── ExperienceTimeline.jsx     # (Assumed) Timeline component for experience visualization
-│   │   │   ├── GraphContainer.jsx         # Wrapper providing expand/collapse for charts
-│   │   │   ├── JobCard.jsx                # Card for listing job experiences
-│   │   │   └── NumberBadge.jsx            # Badge component for numeric stats (e.g., job count)
+│   │   ├── Interview/          	# Components that include the AI Interviewer Objects and Handler
+│   │   │   └── ChatDialog.jsx     	# AI chatbot module that includes functionality for Evaluation and Recording
+│   │   │
+│   │   ├── Layout/           	# Layout and helper UI components
+│   │   │   ├── AppBarTip.jsx          	# Custom AppBar with file info and toggle buttons
+│   │   │   ├── EducationCard.jsx      	# Card component for displaying education entries
+│   │   │   ├── ExperienceTimeline.jsx 	# (Assumed) Timeline component for experience visualization
+│   │   │   ├── GraphContainer.jsx     	# Wrapper providing expand/collapse for charts
+│   │   │   ├── JobCard.jsx            	# Card for listing job experiences
+│   │   │   └── NumberBadge.jsx        	# Badge component for numeric stats (e.g., job count)
 │   │
-│   ├── pages/                   # Main pages of the app (Routing targets)
-│   │   ├── landing.css                   # Styling for LandingPage
-│   │   ├── LandingPage.jsx               # Landing page with file upload and intro UI
-│   │   └── MainPage.jsx                  # Core dashboard page with visualizations and job data
+│   ├── pages/               	# Main pages of the app (Routing targets)
+│   │   ├── landing.css               	# Styling for LandingPage
+│   │   ├── LandingPage.jsx           	# Landing page with file upload and intro UI
+│   │   └── MainPage.jsx              	# Core dashboard page with visualizations and job data
 │   │
-│   ├── utils/                   # Utility functions/helpers
-│   │   └── formatDateToMonthYear.jsx     # Date formatting utility
+│   ├── utils/               	# Utility functions/helpers
+│   │   ├── formatDateToMonthYear.jsx      # Date formatting utility
+│   │   └── interviewAPI.jsx 		# Module that connects to the Backend - Specifically for functionality regarding the AI interviewer
 │   │
-│   ├── theme.css                # Global CSS variables and theme definitions
-│   ├── App.js                   # Main React component handling routing
-│   ├── App.css                  # Global styles for the App component
-│   ├── index.js                 # React entry point (renders App to DOM)
-│   ├── index.css                # Base CSS resets and global styles
-│   ├── theme.js                 # MUI theme customization
+│   ├── theme.css            	# Global CSS variables and theme definitions
+│   ├── App.js               	# Main React component handling routing
+│   ├── App.css              	# Global styles for the App component
+│   ├── index.js             	# React entry point (renders App to DOM)
+│   ├── index.css            	# Base CSS resets and global styles
+│   ├── theme.js             	# MUI theme customization
 │
-├── .dockerignore               # Files/folders to ignore when building Docker images
-├── Dockerfile                  # Docker configuration for containerizing the app
-├── .gitignore                  # Specifies files to exclude from Git tracking
-├── package.json                # Project metadata, scripts, and dependencies list
-├── package-lock.json           # Exact dependency tree (auto-generated by npm)
-└── README.md                   # Project overview and setup instructions
-```
+├── .dockerignore           	# Files/folders to ignore when building Docker images
+├── Dockerfile              	# Docker configuration for containerizing the app
+├── .gitignore              	# Specifies files to exclude from Git tracking
+├── package.json            	# Project metadata, scripts, and dependencies list
+├── package-lock.json       	# Exact dependency tree (auto-generated by npm)
+└── README.md               	# Project overview and setup instructions```
 
 ---
 

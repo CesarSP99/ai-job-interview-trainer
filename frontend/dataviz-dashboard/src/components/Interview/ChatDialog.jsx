@@ -15,17 +15,30 @@ import {
   CircularProgress,
   Divider,
   Stack,
+  Slider,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import SendIcon from "@mui/icons-material/Send";
 import MicIcon from "@mui/icons-material/Mic";
 import {
+  BASE_URL,
   startInterviewSession,
   sendInterviewMessage,
   evaluateInterview,
 } from "../../utils/interviewApi";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+// Helper: format ms → mm:ss
+function formatDuration(ms) {
+  if (!ms || ms < 0) return "0:00";
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
 
 // Helper: map backend Message -> local shape
 function mapBackendMessage(m) {
@@ -36,6 +49,7 @@ function mapBackendMessage(m) {
     modality: m.modality || "text",
     sentiment: m.sentiment || null,
     timestamp: Date.now(),
+    ttsUrl: m.tts_url ?? null,
   };
 }
 
@@ -54,7 +68,13 @@ StartRequest payload example (what we send to /interview/start):
 }
 */
 
-export default function ChatDialog({ open, onClose, job, resumeSkills, resumeProfile }) {
+export default function ChatDialog({
+  open,
+  onClose,
+  job,
+  resumeSkills,
+  resumeProfile,
+}) {
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -62,12 +82,25 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
   const [sending, setSending] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
 
-  // audio recording state
+  // master timer
+  const [interviewStartTime, setInterviewStartTime] = useState(null);
+  const [interviewEndTime, setInterviewEndTime] = useState(null);
+  const [now, setNow] = useState(null);
+
+  // per-message timer: last assistant message time
+  const [lastAssistantTimestamp, setLastAssistantTimestamp] = useState(null);
+
+  // audio recording state (user voice messages)
   const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
+  //audio playback options for the interview:
+  const [playbackRate, setPlaybackRate] = useState(1.0);      // 1x default
+  const [showInterviewerText, setShowInterviewerText] = useState(true);
+
   const listRef = useRef(null);
+  const lastAudioRef = useRef(null); // for assistant TTS playback
 
   // Autoscroll to last message
   useEffect(() => {
@@ -81,7 +114,19 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     [job]
   );
 
-  // Cleanup recording on unmount/close
+  // master chronometer ticker
+  useEffect(() => {
+    if (!interviewStartTime || interviewEndTime) return;
+
+    setNow(Date.now());
+    const id = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(id);
+  }, [interviewStartTime, interviewEndTime]);
+
+  // Cleanup recording on unmount
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current) {
@@ -127,17 +172,26 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
         const res = await startInterviewSession(startPayload);
         if (cancelled) return;
 
-        // Backend response: { session_id, first_message }
+        const startTs = Date.now();
         setSessionId(res.session_id);
+        setInterviewStartTime(startTs);
+        setInterviewEndTime(null);
 
-        const firstMsg = mapBackendMessage(res.first_message);
-        setMessages([
-          firstMsg || {
-            role: "assistant",
-            content: `Hi! I’m your AI interviewer for "${jobTitle}". I’ll ask questions like a real interview and give feedback. Ready to start?`,
-            timestamp: Date.now(),
-          },
-        ]);
+        const firstMsgBackend = res.first_message;
+        const firstMsg = firstMsgBackend
+          ? {
+              ...mapBackendMessage(firstMsgBackend),
+              timestamp: startTs,
+            }
+          : {
+              role: "assistant",
+              content: `Hi! I’m your AI interviewer for "${jobTitle}". I’ll ask questions like a real interview and give feedback. Ready to start?`,
+              timestamp: startTs,
+              ttsUrl: null,
+            };
+
+        setMessages([firstMsg]);
+        setLastAssistantTimestamp(startTs);
       } catch (e) {
         if (!cancelled) {
           setMessages([
@@ -165,7 +219,12 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
       setStarting(false);
       setSending(false);
       setEvaluating(false);
+      setInterviewStartTime(null);
+      setInterviewEndTime(null);
+      setNow(null);
+      setLastAssistantTimestamp(null);
       setRecording(false);
+
       if (mediaRecorderRef.current) {
         try {
           mediaRecorderRef.current.stream
@@ -183,35 +242,92 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     };
   }, [open, job, jobTitle, resumeSkills, resumeProfile]);
 
+  // auto-play assistant TTS audio when a new assistant message arrives
+  // auto-play assistant TTS audio when a NEW assistant message arrives
+  /*useEffect(() => {
+    if (!messages.length) return;
+
+    const last = messages[messages.length - 1];
+
+    if (last.role === "assistant" && last.ttsUrl) {
+      // stop any previous autoplay audio
+      if (lastAudioRef.current) {
+        try {
+          lastAudioRef.current.pause();
+        } catch {
+          // ignore
+        }
+      }
+
+      const audio = new Audio(`${BASE_URL}${last.ttsUrl}`);
+      audio.playbackRate = playbackRate;  // use current slider value at start
+      lastAudioRef.current = audio;
+
+      audio
+        .play()
+        .catch((err) =>
+          console.warn("Could not autoplay assistant audio:", err)
+        );
+    }
+  }, [messages]);   // 👈 ONLY depends on messages now
+
+  // whenever playbackRate changes, update the currently playing assistant audio
+  useEffect(() => {
+    if (lastAudioRef.current) {
+      try {
+        lastAudioRef.current.playbackRate = playbackRate;
+      } catch {
+        // ignore
+      }
+    }
+  }, [playbackRate]);
+*/
+
+const lastAutoPlayedIndexRef = useRef(-1);
+
+
+  const masterElapsedMs =
+    interviewStartTime == null
+      ? 0
+      : (interviewEndTime ?? now ?? interviewStartTime) - interviewStartTime;
+
   async function handleSend() {
     const trimmed = input.trim();
-    if (!trimmed || !sessionId || sending || starting || recording) return;
+    if (!trimmed || !sessionId || sending) return;
+
+    const nowTs = Date.now();
+    const responseTimeMs =
+      lastAssistantTimestamp != null ? nowTs - lastAssistantTimestamp : null;
 
     setSending(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: trimmed, timestamp: Date.now() },
+      {
+        role: "user",
+        content: trimmed,
+        timestamp: nowTs,
+        responseTimeMs, // per-message timing
+      },
     ]);
     setInput("");
 
     try {
-      // POST user message and get ChatResponse back
       const chatResponse = await sendInterviewMessage({
         sessionId,
         content: trimmed,
         file: null,
       });
 
-      const reply = mapBackendMessage(chatResponse.reply);
-
-      setMessages((prev) => [
-        ...prev,
-        reply || {
+      const reply =
+        mapBackendMessage(chatResponse.reply) || {
           role: "assistant",
           content: "(empty reply)",
           timestamp: Date.now(),
-        },
-      ]);
+          ttsUrl: null,
+        };
+
+      setMessages((prev) => [...prev, reply]);
+      setLastAssistantTimestamp(reply.timestamp ?? Date.now());
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -235,23 +351,25 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     }
   }
 
-  // ✅ Evaluate button
+  // Evaluate button
   async function handleEvaluate() {
     if (!sessionId || evaluating || starting || recording) return;
 
     setEvaluating(true);
+    setInterviewEndTime(Date.now()); // stop master timer
+
     try {
       const res = await evaluateInterview({ sessionId });
 
       const text = `### Overall Evaluation\n\n${res.evaluation}\n\n---\n\n${res.explanation}`;
 
-      // push as a normal assistant message (markdown rendered)
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: text,
           timestamp: Date.now(),
+          ttsUrl: null,
         },
       ]);
     } catch (e) {
@@ -270,7 +388,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
     }
   }
 
-  // 🎙 Voice recording logic
+  // Voice recording logic (user voice messages)
   async function handleToggleRecord() {
     if (!sessionId || starting || sending || evaluating) return;
 
@@ -310,7 +428,6 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
       };
 
       mediaRecorder.onstop = async () => {
-        // stop audio tracks
         stream.getTracks().forEach((t) => t.stop());
         setRecording(false);
 
@@ -319,59 +436,63 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
         const audioBlob = new Blob(audioChunksRef.current, {
           type: "audio/webm",
         });
-          const fileName = `interview-recording-${Date.now()}.webm`;
-  const file = new File([audioBlob], fileName, { type: "audio/webm" });
+        const fileName = `interview-recording-${Date.now()}.webm`;
+        const file = new File([audioBlob], fileName, { type: "audio/webm" });
+        const audioUrl = URL.createObjectURL(audioBlob);
 
-  // ✅ Create a local URL so we can play this audio again
-  const audioUrl = URL.createObjectURL(audioBlob);
-  const timestamp = Date.now();
+        const timestamp = Date.now();
+        const responseTimeMs =
+          lastAssistantTimestamp != null
+            ? timestamp - lastAssistantTimestamp
+            : null;
 
-  setSending(true);
+        setSending(true);
 
-  // ✅ Add a voice message with a playable URL
-  setMessages((prev) => [
-    ...prev,
-    {
-      role: "user",
-      content: "[Voice message]",
-      modality: "voice",
-      audioUrl,          // <- this is what we’ll use in the UI
-      fileName,
-      timestamp,
-    },
-  ]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "user",
+            content: "[Voice message]",
+            modality: "voice",
+            audioUrl,
+            fileName,
+            timestamp,
+            responseTimeMs,
+          },
+        ]);
 
-  try {
-    const chatResponse = await sendInterviewMessage({
-      sessionId,
-      content: "",
-      file,
-    });
+        try {
+          const chatResponse = await sendInterviewMessage({
+            sessionId,
+            content: "",
+            file,
+          });
 
-    const reply = mapBackendMessage(chatResponse.reply);
-    setMessages((prev) => [
-      ...prev,
-      reply || {
-        role: "assistant",
-        content: "(empty reply)",
-        timestamp: Date.now(),
-      },
-    ]);
-  } catch (e) {
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content:
-          "I couldn’t send the voice message. Please try again or use text.",
-        timestamp: Date.now(),
-        error: String(e.message || e),
-      },
-    ]);
-  } finally {
-    setSending(false);
-  }
-};
+          const reply =
+            mapBackendMessage(chatResponse.reply) || {
+              role: "assistant",
+              content: "(empty reply)",
+              timestamp: Date.now(),
+              ttsUrl: null,
+            };
+
+          setMessages((prev) => [...prev, reply]);
+          setLastAssistantTimestamp(reply.timestamp ?? Date.now());
+        } catch (e) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content:
+                "I couldn’t send the voice message. Please try again or use text.",
+              timestamp: Date.now(),
+              error: String(e.message || e),
+            },
+          ]);
+        } finally {
+          setSending(false);
+        }
+      };
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
@@ -392,25 +513,101 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
   return (
     <Dialog
       fullWidth
-      //fullScreen="true"
-      maxWidth="xl" //xs, sm, md, lg, xl)
-     
+      maxWidth="xl"
       open={open}
       onClose={onClose}
       PaperProps={{ sx: { borderRadius: 3 } }}
     >
-      <DialogTitle sx={{ pr: 6 }}>
-        AI Interviewer — {jobTitle}
-        <IconButton
-          aria-label="close"
-          onClick={onClose}
-          sx={{ position: "absolute", right: 12, top: 12 }}
+      <DialogTitle
+        sx={{
+          pr: 6,
+          pl: 3,
+          display: "flex",
+          alignItems: "center",
+          position: "relative",
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            width: "100%",
+            gap: 2,
+          }}
         >
-          <CloseIcon />
-        </IconButton>
+          {/* Left: title */}
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            AI Interviewer — {jobTitle}
+          </Typography>
+
+          {/* spacer */}
+          <Box sx={{ flexGrow: 1 }} />
+
+          {/* Timer: just to the left of the close button */}
+          {interviewStartTime && (
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+                fontStyle: "italic",
+                mr: 1.5,
+                fontSize: "16px",
+              }}
+            >
+              Total time: {formatDuration(masterElapsedMs)}
+            </Typography>
+          )}
+
+          {/* Close button */}
+          <IconButton aria-label="close" onClick={onClose}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
       </DialogTitle>
 
       <DialogContent dividers sx={{ pt: 1, pb: 0 }}>
+
+      {/* Options toolbar: playback speed */}
+{/* Options toolbar: playback speed + show/hide interviewer text */}
+<Box
+  sx={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    mb: 1.5,
+    px: 0.5,
+  }}
+>
+          {/* Left: playback speed */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Typography variant="body2">Playback speed</Typography>
+            <Slider
+              value={playbackRate}
+              onChange={(_, value) => setPlaybackRate(value)}
+              step={0.25}
+              min={0.5}
+              max={1.5}
+              sx={{ width: 160 }}
+            />
+            <Typography variant="caption">
+              {playbackRate.toFixed(2)}x
+            </Typography>
+          </Box>
+
+          {/* Right: show/hide interviewer text */}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showInterviewerText}
+                onChange={(e) => setShowInterviewerText(e.target.checked)}
+                size="small"
+              />
+            }
+            label="Show interviewer text"
+          />
+        </Box>
+
+
         {/* Chat timeline */}
         <Box
           ref={listRef}
@@ -472,39 +669,117 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                             wordBreak: "break-word",
                           }}
                         >
-                          {m.modality === "voice" && m.audioUrl ? (
-                            <>
-                              <Typography
-                                variant="body2"
-                                sx={{ mb: 0.5, fontStyle: "italic" }}
-                              >
-                                {m.content || "[Voice message]"}
-                              </Typography>
-                              <audio controls src={m.audioUrl} style={{ width: "100%" }}>
-                                Your browser does not support the audio element.
-                              </audio>
-                            </>
-                          ) : (
+
+                        {m.modality === "voice" && m.audioUrl ? (
+                          // User voice message: always visible
+                          <>
                             <Typography
                               variant="body2"
-                              component="div"
-                              sx={{
-                                "& h1, & h2, & h3, & h4": { fontWeight: 600, mt: 1.5, mb: 0.5 },
-                                "& ul": { pl: 3, mb: 1 },
-                                "& li": { mb: 0.5 },
-                                "& hr": { my: 1.5 },
+                              sx={{ mb: 0.5, fontStyle: "italic" }}
+                            >
+                              {m.content || "[Voice message]"}
+                            </Typography>
+                            <audio
+                              controls
+                              src={m.audioUrl}
+                              style={{ width: "100%" }}
+                              ref={(el) => {
+                                if (el) {
+                                  el.playbackRate = playbackRate;
+                                }
                               }}
                             >
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {m.content}
-                              </ReactMarkdown>
+                              Your browser does not support the audio element.
+                            </audio>
+                          </>
+                        ) : m.role === "assistant" && !showInterviewerText && m.ttsUrl ? (
+                          // Assistant question with TTS: text hidden, encourage listening
+                          <Typography
+                            variant="body2"
+                            sx={{ fontStyle: "italic", color: "text.secondary" }}
+                          >
+                            Interviewer text hidden — listen to the audio.
+                          </Typography>
+                        ) : (
+                          // Default: render markdown text
+                          <Typography
+                            variant="body2"
+                            component="div"
+                            sx={{
+                              "& h1, & h2, & h3, & h4": {
+                                fontWeight: 600,
+                                mt: 1.5,
+                                mb: 0.5,
+                              },
+                              "& ul": { pl: 3, mb: 1 },
+                              "& li": { mb: 0.5 },
+                              "& hr": { my: 1.5 },
+                            }}
+                          >
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {m.content}
+                            </ReactMarkdown>
+                          </Typography>
+                        )}
+
+
+                          {/* user response time */}
+                          {m.role === "user" && m.responseTimeMs != null && (
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                display: "block",
+                                mt: 0.5,
+                                color: "text.secondary",
+                              }}
+                            >
+                              Response time:{" "}
+                              {formatDuration(m.responseTimeMs)}
                             </Typography>
                           )}
+
+                          {/* assistant TTS audio player */}
+                          {m.role === "assistant" && m.ttsUrl && (
+                            <Box sx={{ mt: 0.5 }}>
+                              <audio
+                                controls
+                                src={`${BASE_URL}${m.ttsUrl}`}
+                                style={{ width: "100%" }}
+                                ref={(el) => {
+                                  if (!el) return;
+
+                                  // always keep playback speed in sync with slider
+                                  el.playbackRate = playbackRate;
+
+                                  // Auto-play ONLY when this is the "newest" assistant message
+                                  // and we haven’t auto-played this index yet
+                                  if (
+                                    idx === messages.length - 1 &&
+                                    lastAutoPlayedIndexRef.current !== idx
+                                  ) {
+                                    lastAutoPlayedIndexRef.current = idx;
+                                    el
+                                      .play()
+                                      .catch((err) =>
+                                        console.warn("Could not autoplay assistant audio:", err)
+                                      );
+                                  }
+                                }}
+                              >
+                                Your browser does not support the audio element.
+                              </audio>
+                            </Box>
+                          )}
+
+
 
                           {m.error && (
                             <>
                               <Divider sx={{ my: 1 }} />
-                              <Typography variant="caption" color="error">
+                              <Typography
+                                variant="caption"
+                                color="error"
+                              >
                                 {m.error}
                               </Typography>
                             </>
@@ -552,12 +827,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
           />
-          <Stack
-            direction="row"
-            alignItems="center"
-
-            sx={{ mt: 2, p: 2}}
-          >
+          <Stack direction="row" alignItems="center" sx={{ mt: 2, p: 2 }}>
             {/* Left: Evaluate */}
             <Button
               variant="outlined"
@@ -565,7 +835,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
               disabled={
                 !sessionId || evaluating || starting || sending || recording
               }
-              sx={{ borderRadius: 2, p:2, ml:-2, mt:-2 }}
+              sx={{ borderRadius: 2, p: 2, ml: -2, mt: -2 }}
             >
               {evaluating ? "Evaluating…" : "Evaluate"}
             </Button>
@@ -578,8 +848,6 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                 justifyContent: "center",
               }}
             >
-            {/* Middle: Voice record (DISABLED FOR THE PROTYPE BECAUSE IT IS NOT FULLY TESTED YET)*/}
-          
               <Button
                 variant={recording ? "contained" : "outlined"}
                 color={recording ? "error" : "secondary"}
@@ -589,7 +857,7 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
                 sx={{ borderRadius: "999px" }}
               >
                 {recording ? "Stop" : "Record"}
-              </Button> 
+              </Button>
             </Box>
 
             {/* Right: Send */}
@@ -598,13 +866,9 @@ export default function ChatDialog({ open, onClose, job, resumeSkills, resumePro
               variant="contained"
               endIcon={<SendIcon />}
               disabled={
-                !sessionId ||
-                !input.trim() ||
-                sending ||
-                starting ||
-                recording
+                !sessionId || !input.trim() || sending || starting || recording
               }
-              sx={{ borderRadius: 2, p:2, mr:-2, mt:-2}}
+              sx={{ borderRadius: 2, p: 2, mr: -2, mt: -2 }}
             >
               Send
             </Button>

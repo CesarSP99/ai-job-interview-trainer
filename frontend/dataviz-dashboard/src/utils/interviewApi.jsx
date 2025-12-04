@@ -1,6 +1,7 @@
 // utils/interviewApi.jsx
 
-const BASE_URL = "https://cloud.cesarsp.com:26000"; // update if needed
+export const BASE_URL = "https://p58bnv54-8000.usw3.devtunnels.ms";
+//export const BASE_URL = "https://cloud.cesarsp.com:26000"; // update if needed
 
 async function handleJsonResponse(res) {
   if (!res.ok) {
