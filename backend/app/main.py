@@ -1,9 +1,12 @@
 # This file is the main entry point for the FastAPI application.
+import os
+
 from fastapi import FastAPI
 from app.auth import auth_router
 from app.api import jobs, resume, interview_train
 from app.db.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Create all tables in the database
 Base.metadata.create_all(bind=engine)
@@ -19,6 +22,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+os.makedirs("media/audio", exist_ok=True)
+
+# 👇 Serve /media/audio/... URLs
+app.mount("/media", StaticFiles(directory="media"), name="media")
 
 # Include routers for different parts of the application
 app.include_router(auth_router.router)

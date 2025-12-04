@@ -38,5 +38,6 @@ class InterviewMessage(Base):
     emotions = Column(JSON)    # list of emotion scores
 
     created_at = Column(DateTime, default=datetime.utcnow)
+    tts_url = Column(String, nullable=True)
 
     session = relationship("InterviewSession", back_populates="messages")
