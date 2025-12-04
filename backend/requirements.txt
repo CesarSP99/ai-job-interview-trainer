@@ -26,3 +26,4 @@ python-multipart
 transformers
 faster-whisper
 torch
+TTS
