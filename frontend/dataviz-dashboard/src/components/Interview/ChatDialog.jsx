@@ -28,6 +28,7 @@ import {
   sendInterviewMessage,
   evaluateInterview,
 } from "../../utils/interviewApi";
+import EvaluationPanel from "./EvaluationPanel"; 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -81,6 +82,7 @@ export default function ChatDialog({
   const [starting, setStarting] = useState(false);
   const [sending, setSending] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
+  const [evaluated, setEvaluated] = useState(false);
 
   // master timer
   const [interviewStartTime, setInterviewStartTime] = useState(null);
@@ -101,6 +103,11 @@ export default function ChatDialog({
 
   const listRef = useRef(null);
   const lastAudioRef = useRef(null); // for assistant TTS playback
+
+  //URL for accessing the Results Button:
+
+  const origin_url = window.location.origin;
+  const results_url = origin_url + "/interview/evaluation" ;
 
   // Autoscroll to last message
   useEffect(() => {
@@ -219,6 +226,7 @@ export default function ChatDialog({
       setStarting(false);
       setSending(false);
       setEvaluating(false);
+      setEvaluated(false);
       setInterviewStartTime(null);
       setInterviewEndTime(null);
       setNow(null);
@@ -351,16 +359,34 @@ const lastAutoPlayedIndexRef = useRef(-1);
     }
   }
 
-  // Evaluate button
+  const [evaluationData, setEvaluationData] = useState(null);
+
+
+    // Evaluate button
   async function handleEvaluate() {
     if (!sessionId || evaluating || starting || recording) return;
 
     setEvaluating(true);
     setInterviewEndTime(Date.now()); // stop master timer
-
+    setEvaluated(false);
     try {
       const res = await evaluateInterview({ sessionId });
+      // res is expected to contain at least: evaluation, explanation
+      // If your backend also returns sentiment_timeline, sentiment_summary, include them here.
+      const evaluationData = {
+        evaluation: res.evaluation,
+        explanation: res.explanation,
+        sentiment_timeline: res.sentiment_timeline || [],
+        sentiment_summary: res.sentiment_summary || {},
+      };
 
+      // 1) Store in localStorage so the new tab can read it
+      localStorage.setItem(
+        "interviewEvaluationData",
+        JSON.stringify(evaluationData)
+      );
+
+      // 2) (Optional) still show summary in chat as markdown
       const text = `### Overall Evaluation\n\n${res.evaluation}\n\n---\n\n${res.explanation}`;
 
       setMessages((prev) => [
@@ -372,6 +398,11 @@ const lastAutoPlayedIndexRef = useRef(-1);
           ttsUrl: null,
         },
       ]);
+
+      // 3) Open evaluation graphs in a new tab
+      const url = "/interview/evaluation"; // route we'll create below
+      window.open(url, "_blank", "noopener,noreferrer");
+      
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -385,8 +416,10 @@ const lastAutoPlayedIndexRef = useRef(-1);
       ]);
     } finally {
       setEvaluating(false);
+      setEvaluated(true);
     }
   }
+
 
   // Voice recording logic (user voice messages)
   async function handleToggleRecord() {
@@ -808,6 +841,8 @@ const lastAutoPlayedIndexRef = useRef(-1);
           )}
         </Box>
 
+
+
         {/* Composer + Evaluate + Voice + Send */}
         <Box
           sx={{
@@ -839,6 +874,15 @@ const lastAutoPlayedIndexRef = useRef(-1);
             >
               {evaluating ? "Evaluating…" : "Evaluate"}
             </Button>
+            {evaluated && (
+              <Button
+                variant="contained"
+                onClick={() => window.open(results_url, "_blank")}
+                sx={{ borderRadius: 2, p: 2, ml: 2, mt: -2 }}
+              >
+                Results
+              </Button>
+            )}
 
             {/* Middle: Voice record */}
             <Box
@@ -874,6 +918,10 @@ const lastAutoPlayedIndexRef = useRef(-1);
             </Button>
           </Stack>
         </Box>
+
+        
+
+
       </DialogContent>
     </Dialog>
   );

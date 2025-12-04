@@ -1,7 +1,9 @@
 // utils/interviewApi.jsx
 
-export const BASE_URL = "https://p58bnv54-8000.usw3.devtunnels.ms";
-//export const BASE_URL = "https://cloud.cesarsp.com:26000"; // update if needed
+//export const BASE_URL = "https://p58bnv54-8000.usw3.devtunnels.ms";
+export const BASE_URL = "https://cloud.cesarsp.com:26000"; // update if needed
+//export const BASE_URL =  "http://192.168.1.53:8000";  // URL CONNECTION. IF NOT WORKING, IT WILL DEFAULT TO LOCAL JSON
+
 
 async function handleJsonResponse(res) {
   if (!res.ok) {
